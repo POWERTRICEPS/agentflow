@@ -1,4 +1,6 @@
 # AgentFlow
+
+
 AgentFlow is an agentic developer assistant that helps with software tasks inside a code repository. A user provides a repository and a task, and the system inspects the codebase, retrieves relevant context, generates a plan, proposes code changes, and runs validation commands such as tests or linting.
 
 The project is meant to simulate a lightweight AI coding workflow rather than just a chatbot. The main idea is to combine an LLM with repository-aware tools so the system can reason about real code, not just answer questions in the abstract.
