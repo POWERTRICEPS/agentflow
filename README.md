@@ -1,55 +1,117 @@
 # AgentFlow
 
-AgentFlow is an agentic developer assistant that helps with software tasks inside a code repository. A user provides a repository and a task, and the system inspects the codebase, retrieves relevant context, generates a plan, proposes code changes, and runs validation commands such as tests or linting.
+AgentFlow is a local platform for running coding tasks through an isolated,
+observable worker pipeline.
 
-The project is meant to simulate a lightweight AI coding workflow rather than just a chatbot. The main idea is to combine an LLM with repository-aware tools so the system can reason about real code, not just answer questions in the abstract.
+A task submitted from the CLI or web interface is persisted in Postgres, claimed by
+a worker, processed by a coding agent, and validated inside a Docker container.
+AgentFlow records the complete execution history—including status transitions,
+logs, generated patches, test results, and runtime metrics—and makes it available
+through a single API.
 
-## Overview
+The initial implementation uses a deterministic mock agent that modifies a real Git
+repository and produces a real patch. This keeps runs reproducible while exercising
+the same orchestration and execution path that a model-backed agent would use.
 
-AgentFlow is designed around a simple development loop:
+## Architecture
 
-1. Connect to a local repository.
-2. Submit a task such as fixing a bug or adding a feature.
-3. Retrieve the files and code snippets most relevant to the task.
-4. Generate a plan and proposed code changes with an LLM.
-5. Run tests, lint, or other validation commands.
-6. Return the result, logs, and suggested next steps.
+```text
+                         +-------------------+
+                         |      Web UI       |
+                         +---------+---------+
+                                   |
+ +-------------+                   | HTTP / event stream
+ |     CLI     +-------------------+
+ +-------------+                   |
+                                   v
+                         +---------+---------+
+                         |    FastAPI API    |
+                         +---------+---------+
+                                   |
+                                   v
+                         +---------+---------+
+                         |     Postgres      |
+                         +---------+---------+
+                                   ^
+                                   | tasks, leases, events
+                                   |
+                         +---------+---------+
+                         |      Worker       |
+                         +---------+---------+
+                                   |
+                                   v
+                         +---------+---------+
+                         |  Docker sandbox   |
+                         | agent + test run  |
+                         +-------------------+
+```
 
-Core capabilities:
+### API
 
-- repository-aware task execution
-- code context retrieval
-- LLM-powered planning and code generation
-- validation through command execution
-- logs and status tracking for each run
+The FastAPI service is the control plane for AgentFlow. It accepts tasks, exposes
+their current state and execution history, handles cancellation requests, and
+serves artifacts such as patches and test results.
+
+Task creation is asynchronous: the API persists the request and returns an
+identifier without waiting for execution to finish.
+
+### Postgres
+
+Postgres is the source of truth for tasks, execution attempts, worker leases,
+events, and artifacts. It also acts as the initial task queue, allowing workers to
+claim work atomically without a separate message broker.
+
+### Worker
+
+Workers claim queued tasks, maintain leases while processing them, and persist each
+meaningful state transition. Expired leases allow interrupted work to be recovered
+after a worker exits unexpectedly.
+
+### Docker runner
+
+Each task runs in a disposable workspace inside a constrained Docker container.
+The runner applies the generated change, executes the configured validation
+commands, captures output, and cleans up the execution environment.
+
+### CLI and web UI
+
+The CLI and web dashboard use the same API. Both expose task creation, status,
+ordered logs, generated diffs, test results, retry history, and execution metrics.
+
+## Task Lifecycle
+
+```text
+queued -> claimed -> preparing -> generating -> testing -> succeeded
+   |         |           |             |           |
+   +---------+-----------+-------------+-----------+-> failed
+                         |
+                         +---------------------------> cancelled
+```
+
+AgentFlow stores state transitions explicitly so a task's outcome can be understood
+without reconstructing state from log messages. A task may have multiple execution
+attempts, preserving the history of failures and retries.
+
+## Features
+
+- asynchronous coding-task execution
+- durable task and run history
+- concurrent workers with atomic task claiming
+- worker leases and recovery of interrupted tasks
+- deterministic mock agent producing real Git patches
+- isolated test execution in Docker
+- execution timeouts and resource limits
+- structured logs and status events
+- patch, test-result, and runtime-metric storage
+- retry and cancellation support
+- CLI and web interfaces backed by one API
 
 ## Running Locally
 
-This project is currently in early setup, so local run instructions will be added as the backend and frontend are scaffolded.
+Local development instructions will be added when the Docker Compose environment is
+available.
 
-Planned local setup:
+The intended setup will start Postgres, the API, a worker, and the web UI with a
+single command.
 
-- backend service for task orchestration
-- optional frontend or CLI for task input
-- environment variables for LLM API access
-
-Once implemented, this section should include:
-
-- installation steps
-- environment variable setup
-- backend startup command
-- frontend startup command if applicable
-
-## Deployment
-
-If deployed, AgentFlow would typically be run as:
-
-- a backend API service hosted on a platform such as Render, Railway, Fly.io, or AWS
-- an optional frontend hosted separately on Vercel or Netlify
-
-This README should eventually include:
-
-- deployed app URL
-- backend API base URL
-- any authentication or access notes
 
